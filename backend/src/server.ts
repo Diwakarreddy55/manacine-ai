@@ -1,6 +1,10 @@
-```ts
-import express, { Request, Response } from "express";
-import cors from "cors";
+
+import express, {
+  Request,
+  Response,
+  NextFunction,
+} from "express";
+
 import dotenv from "dotenv";
 import path from "path";
 
@@ -11,31 +15,12 @@ dotenv.config();
 
 const app = express();
 
-/*
-|--------------------------------------------------------------------------
-| PORT
-|--------------------------------------------------------------------------
-|
-| Local:
-|   PORT=5000
-|
-| Render:
-|   Render provides PORT automatically.
-|
-*/
 const PORT = Number(process.env.PORT || 5000);
 
 /*
 |--------------------------------------------------------------------------
 | CORS
 |--------------------------------------------------------------------------
-|
-| Production frontend:
-|   https://manacine-ai.vercel.app
-|
-| Local frontend:
-|   http://localhost:3000
-|
 */
 
 const allowedOrigins = [
@@ -43,72 +28,91 @@ const allowedOrigins = [
   "http://localhost:3000",
 ];
 
-const corsOptions: cors.CorsOptions = {
-  origin: (
-    origin: string | undefined,
-    callback: (error: Error | null, allow?: boolean) => void
-  ) => {
-    /*
-     * Allow requests without Origin.
-     * This is useful for health checks and server-to-server requests.
-     */
-    if (!origin) {
-      return callback(null, true);
-    }
-
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-
-    console.log("CORS blocked origin:", origin);
-
-    return callback(
-      new Error(`CORS blocked origin: ${origin}`)
-    );
-  },
-
-  methods: [
-    "GET",
-    "POST",
-    "PUT",
-    "PATCH",
-    "DELETE",
-    "OPTIONS",
-  ],
-
-  allowedHeaders: [
-    "Content-Type",
-    "Authorization",
-  ],
-
-  credentials: true,
-
-  optionsSuccessStatus: 204,
-};
-
 /*
 |--------------------------------------------------------------------------
 | CORS Middleware
 |--------------------------------------------------------------------------
-|
-| IMPORTANT:
-| CORS must be registered BEFORE API routes.
-|
 */
 
-app.use(cors(corsOptions));
+app.use(
+  (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ) => {
+    const origin = req.headers.origin;
+
+    console.log(
+      `[CORS] ${req.method} ${req.originalUrl}`
+    );
+
+    console.log(
+      `[CORS] Origin: ${origin || "none"}`
+    );
+
+    /*
+    |--------------------------------------------------------------------------
+    | Allow configured frontend origins
+    |--------------------------------------------------------------------------
+    */
+
+    if (
+      origin &&
+      allowedOrigins.includes(origin)
+    ) {
+      res.setHeader(
+        "Access-Control-Allow-Origin",
+        origin
+      );
+
+      res.setHeader(
+        "Access-Control-Allow-Credentials",
+        "true"
+      );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Required CORS headers
+    |--------------------------------------------------------------------------
+    */
+
+    res.setHeader(
+      "Vary",
+      "Origin"
+    );
+
+    res.setHeader(
+      "Access-Control-Allow-Methods",
+      "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+    );
+
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization"
+    );
+
+    /*
+    |--------------------------------------------------------------------------
+    | Handle browser preflight
+    |--------------------------------------------------------------------------
+    */
+
+    if (req.method === "OPTIONS") {
+      console.log(
+        "[CORS] OPTIONS preflight accepted"
+      );
+
+      return res.status(204).end();
+    }
+
+    next();
+  }
+);
 
 /*
 |--------------------------------------------------------------------------
-| Explicit OPTIONS / Preflight
-|--------------------------------------------------------------------------
-*/
-
-app.options("*", cors(corsOptions));
-
-/*
-|--------------------------------------------------------------------------
-| Body Parser
+| BODY PARSER
 |--------------------------------------------------------------------------
 */
 
@@ -127,7 +131,41 @@ app.use(
 
 /*
 |--------------------------------------------------------------------------
-| Health Check
+| ROOT
+|--------------------------------------------------------------------------
+*/
+
+app.get(
+  "/",
+  (_req: Request, res: Response) => {
+    res.status(200).json({
+      ok: true,
+      service: "manacine-api",
+      message: "ManaCine backend is running",
+    });
+  }
+);
+
+/*
+|--------------------------------------------------------------------------
+| API ROOT
+|--------------------------------------------------------------------------
+*/
+
+app.get(
+  "/api",
+  (_req: Request, res: Response) => {
+    res.status(200).json({
+      ok: true,
+      service: "manacine-api",
+      message: "ManaCine API is running",
+    });
+  }
+);
+
+/*
+|--------------------------------------------------------------------------
+| HEALTH CHECK
 |--------------------------------------------------------------------------
 */
 
@@ -145,22 +183,30 @@ app.get(
 
 /*
 |--------------------------------------------------------------------------
-| API Routes
+| AUTH ROUTES
 |--------------------------------------------------------------------------
 */
 
-app.use("/api/auth", authRoutes);
-
-app.use("/api/projects", projectRoutes);
+app.use(
+  "/api/auth",
+  authRoutes
+);
 
 /*
 |--------------------------------------------------------------------------
-| Storage
+| PROJECT ROUTES
 |--------------------------------------------------------------------------
-|
-| Serves files from:
-| backend/storage
-|
+*/
+
+app.use(
+  "/api/projects",
+  projectRoutes
+);
+
+/*
+|--------------------------------------------------------------------------
+| STORAGE
+|--------------------------------------------------------------------------
 */
 
 const storagePath = path.resolve(
@@ -174,24 +220,7 @@ app.use(
 
 /*
 |--------------------------------------------------------------------------
-| API Root
-|--------------------------------------------------------------------------
-*/
-
-app.get(
-  "/api",
-  (_req: Request, res: Response) => {
-    res.status(200).json({
-      ok: true,
-      service: "manacine-api",
-      message: "ManaCine API is running",
-    });
-  }
-);
-
-/*
-|--------------------------------------------------------------------------
-| 404 Handler
+| 404 HANDLER
 |--------------------------------------------------------------------------
 */
 
@@ -200,6 +229,10 @@ app.use(
     req: Request,
     res: Response
   ) => {
+    console.log(
+      `[404] ${req.method} ${req.originalUrl}`
+    );
+
     res.status(404).json({
       ok: false,
       message: "Route not found",
@@ -210,7 +243,7 @@ app.use(
 
 /*
 |--------------------------------------------------------------------------
-| Global Error Handler
+| ERROR HANDLER
 |--------------------------------------------------------------------------
 */
 
@@ -219,28 +252,23 @@ app.use(
     error: any,
     _req: Request,
     res: Response,
-    _next: any
+    _next: NextFunction
   ) => {
     console.error(
-      "SERVER ERROR:",
-      error
+      "================================"
     );
 
-    /*
-     * CORS error
-     */
-    if (
-      error?.message?.startsWith(
-        "CORS blocked origin:"
-      )
-    ) {
-      return res.status(403).json({
-        ok: false,
-        message: error.message,
-      });
-    }
+    console.error(
+      "MANACINE SERVER ERROR"
+    );
 
-    return res.status(500).json({
+    console.error(error);
+
+    console.error(
+      "================================"
+    );
+
+    res.status(500).json({
       ok: false,
       message:
         process.env.NODE_ENV === "production"
@@ -253,7 +281,7 @@ app.use(
 
 /*
 |--------------------------------------------------------------------------
-| Start Server
+| START SERVER
 |--------------------------------------------------------------------------
 */
 
@@ -262,41 +290,42 @@ app.listen(
   "0.0.0.0",
   () => {
     console.log(
-      "======================================"
+      "========================================"
     );
 
     console.log(
-      "       ManaCine AI API Server"
+      "       MANACINE AI BACKEND"
     );
 
     console.log(
-      "======================================"
+      "========================================"
     );
 
     console.log(
-      `Environment: ${
+      `PORT: ${PORT}`
+    );
+
+    console.log(
+      `ENVIRONMENT: ${
         process.env.NODE_ENV ||
         "development"
       }`
     );
 
     console.log(
-      `Port: ${PORT}`
+      "ALLOWED ORIGINS:"
+    );
+
+    allowedOrigins.forEach(
+      (origin) => {
+        console.log(
+          ` - ${origin}`
+        );
+      }
     );
 
     console.log(
-      `CORS Origins: ${allowedOrigins.join(
-        ", "
-      )}`
-    );
-
-    console.log(
-      `Storage: ${storagePath}`
-    );
-
-    console.log(
-      "======================================"
+      "========================================"
     );
   }
 );
-```
