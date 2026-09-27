@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+const API =
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://manacine-backend.onrender.com/api";
 
 type Project = {
   id:number; title:string; duration_minutes:number; status:string; progress:number; prompt:string;
